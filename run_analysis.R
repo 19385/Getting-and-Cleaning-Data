@@ -1,86 +1,50 @@
+library(RCurl)
 
-#Load plyr, used for the join function
-library(plyr)
-
-#Set Dataset Path relative to the workind directory
-datasetPath <- 'UCI HAR Dataset'
-
-#Set FilePaths - Note that there is a 'train' and a 'test' subdirectories
-featuresFilename <- file.path(datasetPath, 'features.txt')
-labelFilename <- file.path(datasetPath, 'activity_labels.txt')
-trainLabelFilename <- file.path(datasetPath, 'train/y_train.txt')
-trainSetFilename <- file.path(datasetPath, 'train/x_train.txt')
-trainSubjectFilename <- file.path(datasetPath, 'train/subject_train.txt')
-testLabelFilename <- file.path(datasetPath, 'test/y_test.txt')
-testSetFilename <- file.path(datasetPath, 'test/x_test.txt')
-testSubjectFilename <- file.path(datasetPath, 'test/subject_test.txt')
-
-#Read Features and add 'labels' and 'subject'
-#to the beggining of the list
-features <- read.table(featuresFilename)
-features <- features[2]
-colnames(features) <-'features'
-features <- rbind(data.frame(features=c('labels','subject')),features)
-
-#Read Labels
-labels <- read.table(labelFilename)
-
-#Create trainData dataframe with Train Labels, Train Subjects and Train DataSet
-trainData<-cbind(read.table(trainLabelFilename),read.table(trainSubjectFilename),read.table(trainSetFilename))
-
-#Create testData dataframe with Test Labels, Test Subjects and Test DataSet
-testData<-cbind(read.table(testLabelFilename),read.table(testSubjectFilename),read.table(testSetFilename))
-
-#Remove Paths from memory
-rm(datasetPath,featuresFilename,labelFilename,trainLabelFilename,trainSetFilename,trainSubjectFilename)
-rm(testLabelFilename,testSetFilename,testSubjectFilename)
-
-#Create completeData by joining trainData and testData
-#and remove them from memory
-completeData<-join(trainData,testData)
-rm(trainData,testData)
-
-#Name the columns of completeData using the loaded Features
-#and remove it from memory
-names(completeData)<-features[1:563,]
-rm(features)
-
-#Factor completeData with loaded Labels and remove it from memory
-completeData$labels <- factor(completeData$labels, levels=labels[,1], labels=labels[,2])
-rm(labels)
-
-#useCol wil list the indexes of the columns of completeData we will use
-#initialize useCol with 1 and 2 as they we wil keep
-#both 'labels' and 'subjects' columns
-useCol<-c(1,2)
-
-#For all the remaining columns in completeData, check if they contain
-#'mean' or 'std' and, if so, add them to useCol
-for (i in 3:length(completeData)){
-    if(length(grep('mean',names(completeData)[i]))==1){        
-        useCol<-append(useCol,i)        
-    }else if(length(grep('std',names(completeData)[i]))==1){
-        useCol<-append(useCol,i)        
-    }
+if (!file.info('UCI HAR Dataset')$isdir) {
+  dataFile <- 'https://d396qusza40orc.cloudfront.net/getdata%2Fprojectfiles%2FUCI%20HAR%20Dataset.zip'
+  dir.create('UCI HAR Dataset')
+  download.file(dataFile, 'UCI-HAR-dataset.zip', method='curl')
+  unzip('./UCI-HAR-dataset.zip')
 }
 
-#Set partialData a subset of completeData with the useCol columns
-partialData<-completeData[,useCol]
+# Merges the training and the test sets to create one data set.
+x.train <- read.table('./UCI HAR Dataset/train/X_train.txt')
+x.test <- read.table('./UCI HAR Dataset/test/X_test.txt')
+x <- rbind(x.train, x.test)
 
-#remove completeData and useCol
-rm(completeData,useCol)
+subj.train <- read.table('./UCI HAR Dataset/train/subject_train.txt')
+subj.test <- read.table('./UCI HAR Dataset/test/subject_test.txt')
+subj <- rbind(subj.train, subj.test)
 
-#split partialData by subject.labels and assign to splitData
-splitData<-split(partialData,list(partialData$subject,partialData$labels))
+y.train <- read.table('./UCI HAR Dataset/train/y_train.txt')
+y.test <- read.table('./UCI HAR Dataset/test/y_test.txt')
+y <- rbind(y.train, y.test)
 
-#generate final tidyData with the mean of every variable of splitData
-tidyData<-sapply(splitData, function(x) colMeans(x[3:length(names(partialData))]))
+# Extracts only the measurements on the mean and standard deviation for each measurement. 
+features <- read.table('./UCI HAR Dataset/features.txt')
+mean.sd <- grep("-mean\\(\\)|-std\\(\\)", features[, 2])
+x.mean.sd <- x[, mean.sd]
 
-#remove splitData and partialData
-rm(splitData,partialData)
+# Uses descriptive activity names to name the activities in the data set
+names(x.mean.sd) <- features[mean.sd, 2]
+names(x.mean.sd) <- tolower(names(x.mean.sd)) 
+names(x.mean.sd) <- gsub("\\(|\\)", "", names(x.mean.sd))
 
-#write tidyData as a csv to tidyData.csv
-write.csv(tidyData, file="./tidyData.csv")
+activities <- read.table('./UCI HAR Dataset/activity_labels.txt')
+activities[, 2] <- tolower(as.character(activities[, 2]))
+activities[, 2] <- gsub("_", "", activities[, 2])
 
-#remove tidyData
-rm(tidyData)
+y[, 1] = activities[y[, 1], 2]
+colnames(y) <- 'activity'
+colnames(subj) <- 'subject'
+
+# Appropriately labels the data set with descriptive activity names.
+data <- cbind(subj, x.mean.sd, y)
+str(data)
+write.table(data, './Project/merged.txt', row.names = F)
+
+# Creates a second, independent tidy data set with the average of each variable for each activity and each subject. 
+average.df <- aggregate(x=data, by=list(activities=data$activity, subj=data$subject), FUN=mean)
+average.df <- average.df[, !(colnames(average.df) %in% c("subj", "activity"))]
+str(average.df)
+write.table(average.df, './Project/average.txt', row.names = F)
